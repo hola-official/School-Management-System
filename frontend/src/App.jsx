@@ -50,6 +50,7 @@ const ClassRegistrationDApp = () => {
      // Check if connected account is admin
      try {
        const adminAddress = await contractInstance.admin();
+       console.log("Admin address from contract:", adminAddress);
        setIsAdmin(adminAddress.toLowerCase() === account.toLowerCase());
      } catch (err) {
        console.error("Error checking admin status:", err);
