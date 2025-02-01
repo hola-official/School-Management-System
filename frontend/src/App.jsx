@@ -1,290 +1,350 @@
 import React, { useEffect, useState } from "react";
 import { ethers } from "ethers";
-import { Loader2 } from "lucide-react";
+import { Loader2, Search, UserMinus, UserPlus } from "lucide-react";
+import { toast } from "react-toastify";
 import abi from "./abi.json";
 
 const CONTRACT_ADDRESS = "0xe4726d0fb94f1Bd78047752414fFAB43bE9f7697";
-const CONTRACT_ABI = abi;
 
 const ClassRegistrationDApp = () => {
- const [provider, setProvider] = useState(null);
- const [contract, setContract] = useState(null);
- const [account, setAccount] = useState("");
- const [isAdmin, setIsAdmin] = useState(false);
- const [loading, setLoading] = useState(true);
- const [error, setError] = useState("");
- const [students, setStudents] = useState([]);
- const [newStudent, setNewStudent] = useState({ id: "", name: "" });
- const [studentCount, setStudentCount] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [account, setAccount] = useState("");
+  const [networkName, setNetworkName] = useState("");
+  const [registerForm, setRegisterForm] = useState({
+    name: "",
+    studentId: "",
+  });
+  const [removeForm, setRemoveForm] = useState({
+    studentId: "",
+  });
+  const [searchForm, setSearchForm] = useState({
+    studentId: "",
+  });
+  const [studentDetails, setStudentDetails] = useState(null);
 
- const connectWallet = async () => {
-   try {
-     if (!window.ethereum) {
-       throw new Error("Please install MetaMask!");
-     }
+  const checkNetwork = async () => {
+    if (window.ethereum) {
+      const chainId = await window.ethereum.request({ method: "eth_chainId" });
+      if (chainId !== 4202) {
+        try {
+          await window.ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: 4202 }],
+          });
+        } catch (error) {
+          if (error.code === 4902) {
+            try {
+              await window.ethereum.request({
+                method: "wallet_addEthereumChain",
+                params: [REQUIRED_NETWORK],
+              });
+            } catch (addError) {
+              toast.error("Please add Sepolia network to MetaMask");
+            }
+          }
+        }
+      }
+      // Update network name
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const network = await provider.getNetwork();
+      setNetworkName(network.name);
+    }
+  };
 
-     setLoading(true);
-     setError("");
+  const connectWallet = async () => {
+    try {
+      if (!window.ethereum) {
+        throw new Error("Please install MetaMask!");
+      }
 
-     const accounts = await window.ethereum.request({
-       method: "eth_requestAccounts",
-     });
-     if (!accounts || accounts.length === 0) {
-       throw new Error("No accounts found!");
-     }
+      setLoading(true);
+      await checkNetwork();
 
-     const account = accounts[0];
-     setAccount(account);
+      const accounts = await window.ethereum.request({
+        method: "eth_requestAccounts",
+      });
+      setAccount(accounts[0]);
 
-     const provider = new ethers.BrowserProvider(window.ethereum);
-     const signer = await provider.getSigner();
-     const contractInstance = new ethers.Contract(
-       CONTRACT_ADDRESS,
-       CONTRACT_ABI,
-       signer
-     );
+      toast.success("Wallet connected successfully!");
+    } catch (err) {
+      console.error("Connection error:", err);
+      toast.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-     setProvider(provider);
-     setContract(contractInstance);
+  const getContractInstance = async (needSigner = true) => {
+    if (!window.ethereum) {
+      throw new Error("Please install MetaMask!");
+    }
 
-     // Check if connected account is admin
-     try {
-       const adminAddress = await contractInstance.admin();
-       console.log("Admin address from contract:", adminAddress);
-       setIsAdmin(adminAddress.toLowerCase() === account.toLowerCase());
-     } catch (err) {
-       console.error("Error checking admin status:", err);
-       // Don't throw here, just log the error and continue
-       setIsAdmin(false);
-     }
+    await checkNetwork();
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    if (needSigner) {
+      const signer = await provider.getSigner();
+      return new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+    }
+    return new ethers.Contract(CONTRACT_ADDRESS, abi, provider);
+  };
 
-     await loadStudents();
-     setLoading(false);
-   } catch (err) {
-     console.error("Connection error:", err);
-     setError(err.message);
-     setLoading(false);
-   }
- };
+  const handleRegisterStudent = async (e) => {
+    e.preventDefault();
+    if (!registerForm.name || !registerForm.studentId) return;
 
- const loadStudents = async () => {
-   if (!contract) return;
+    try {
+      setLoading(true);
+      const contract = await getContractInstance();
 
-   try {
-     const loadedStudents = [];
-     let id = 0;
+      toast.info("Registering student...");
+      const tx = await contract.registerStudent(
+        registerForm.studentId,
+        registerForm.name
+      );
+      await tx.wait();
 
-     while (id < 100) {
-       // Safety limit
-       try {
-         const student = await contract.getStudentById(id);
-         if (student && student.isRegistered) {
-           loadedStudents.push({ id: id.toString(), name: student.name });
-         }
-         id++;
-       } catch (err) {
-         // If we hit an error, assume we've reached the end
-         break;
-       }
-     }
+      setRegisterForm({ name: "", studentId: "" });
+      toast.success("Student registered successfully!");
+    } catch (err) {
+      console.error("Registration error:", err);
+      toast.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-     setStudents(loadedStudents);
-     setStudentCount(loadedStudents.length);
-   } catch (err) {
-     console.error("Error loading students:", err);
-     setError("Error loading students: " + err.message);
-   }
- };
+  const handleRemoveStudent = async (e) => {
+    e.preventDefault();
+    if (!removeForm.studentId) return;
 
- const registerStudent = async (e) => {
-   e.preventDefault();
-   if (!contract || !isAdmin) return;
+    try {
+      setLoading(true);
+      const contract = await getContractInstance();
 
-   try {
-     setLoading(true);
-     setError("");
+      toast.info("Removing student...");
+      const tx = await contract.removeStudent(removeForm.studentId);
+      await tx.wait();
 
-     const tx = await contract.registerStudent(newStudent.id, newStudent.name);
-     await tx.wait();
+      setRemoveForm({ studentId: "" });
+      setStudentDetails(null);
+      toast.success("Student removed successfully!");
+    } catch (err) {
+      console.error("Remove error:", err);
+      toast.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-     setNewStudent({ id: "", name: "" });
-     await loadStudents();
-   } catch (err) {
-     console.error("Error registering student:", err);
-     setError("Error registering student: " + err.message);
-   } finally {
-     setLoading(false);
-   }
- };
+  const handleGetStudentById = async (e) => {
+    e.preventDefault();
+    if (!searchForm.studentId) return;
 
- const removeStudent = async (studentId) => {
-   if (!contract || !isAdmin) return;
+    try {
+      setLoading(true);
+      const contract = await getContractInstance(false);
 
-   try {
-     setLoading(true);
-     setError("");
-
-     const tx = await contract.removeStudent(studentId);
-     await tx.wait();
-
-     await loadStudents();
-   } catch (err) {
-     console.error("Error removing student:", err);
-     setError("Error removing student: " + err.message);
-   } finally {
-     setLoading(false);
-   }
- };
-
-  // Add MetaMask account change listener
+      toast.info("Fetching student details...");
+      const result = await contract.getStudentById(searchForm.studentId);
+      setSearchForm;
+      setStudentDetails(result);
+      toast.success("Student details retrieved!");
+    } catch (err) {
+      console.error("Fetch error:", err);
+      toast.error(err.message);
+      setStudentDetails(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+  // Listen for account and network changes
   useEffect(() => {
     if (window.ethereum) {
       window.ethereum.on("accountsChanged", (accounts) => {
-        if (accounts.length > 0) {
-          setAccount(accounts[0]);
-          // Reconnect with new account
-          connectWallet();
-        } else {
-          setAccount("");
-          setIsAdmin(false);
-          setStudents([]);
-        }
+        setAccount(accounts[0] || "");
       });
 
       window.ethereum.on("chainChanged", () => {
-        // Reload the page when chain changes
         window.location.reload();
       });
 
-      // Initial connection if MetaMask is already unlocked
-      if (window.ethereum.selectedAddress) {
-        connectWallet();
-      }
+      // Check initial connection
+      window.ethereum.request({ method: "eth_accounts" }).then((accounts) => {
+        if (accounts.length > 0) {
+          setAccount(accounts[0]);
+          checkNetwork();
+        }
+      });
 
       return () => {
-        // Cleanup listeners
         window.ethereum.removeAllListeners("accountsChanged");
         window.ethereum.removeAllListeners("chainChanged");
       };
     }
   }, []);
 
-  // Contract event listeners
-  useEffect(() => {
-    if (contract) {
-      const registeredFilter = contract.filters.StudentRegistered();
-      const removedFilter = contract.filters.StudentRemoved();
-
-      contract.on(registeredFilter, (studentId, name) => {
-        loadStudents();
-      });
-
-      contract.on(removedFilter, (studentId) => {
-        loadStudents();
-      });
-
-      return () => {
-        contract.removeAllListeners(registeredFilter);
-        contract.removeAllListeners(removedFilter);
-      };
-    }
-  }, [contract]);
-
   return (
-    <div className="app">
-      <div className="container">
-        <div className="card header-card">
-          <h1>Class Registration System</h1>
-          {!account ? (
-            <button onClick={connectWallet} className="btn btn-primary">
-              Connect Wallet
-            </button>
-          ) : (
-            <div className="wallet-info">
-              Connected: {account.slice(0, 6)}...{account.slice(-4)}
-              {isAdmin && <span className="admin-badge">Admin</span>}
-            </div>
-          )}
-        </div>
-
-        {error && <div className="alert error">{error}</div>}
-
-        {isAdmin && (
-          <div className="card">
-            <h2>Register New Student</h2>
-            <form onSubmit={registerStudent} className="registration-form">
-              <input
-                type="number"
-                placeholder="Student ID"
-                value={newStudent.id}
-                onChange={(e) =>
-                  setNewStudent({ ...newStudent, id: e.target.value })
-                }
-                className="input"
-                min="0"
-                required
-              />
-              <input
-                placeholder="Student Name"
-                value={newStudent.name}
-                onChange={(e) =>
-                  setNewStudent({ ...newStudent, name: e.target.value })
-                }
-                className="input"
-                required
-              />
+    <div className="app-container">
+      <div className="app-content">
+        <header className="header">
+          <h1>Student Registration</h1>
+          <div className="wallet-info">
+            {networkName && (
+              <span className="network-badge">
+                Network: {networkName ? "Lisk" : "Unknown"}
+              </span>
+            )}
+            {!account ? (
               <button
-                type="submit"
+                onClick={connectWallet}
                 disabled={loading}
-                className="btn btn-success"
+                className="button button-blue"
               >
-                {loading ? <Loader2 className="spinner" /> : "Register"}
+                {loading ? <Loader2 className="spinner" /> : "Connect Wallet"}
               </button>
-            </form>
+            ) : (
+              <span className="network-badge">
+                {account.slice(0, 6)}...{account.slice(-4)}
+              </span>
+            )}
+          </div>
+        </header>
+
+        {account ? (
+          <div className="forms-grid">
+            {/* Register Form */}
+            <div className="card">
+              <div className="card-header">
+                <UserPlus />
+                <h2 className="card-title">Register New Student</h2>
+              </div>
+              <form onSubmit={handleRegisterStudent} className="form">
+                <div className="input-group">
+                  <input
+                    type="text"
+                    placeholder="Student Name"
+                    value={registerForm.name}
+                    onChange={(e) =>
+                      setRegisterForm((prev) => ({
+                        ...prev,
+                        name: e.target.value,
+                      }))
+                    }
+                    className="input"
+                    required
+                  />
+                  <input
+                    type="text"
+                    placeholder="Student ID"
+                    value={registerForm.studentId}
+                    onChange={(e) =>
+                      setRegisterForm((prev) => ({
+                        ...prev,
+                        studentId: e.target.value,
+                      }))
+                    }
+                    className="input"
+                    required
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="button button-blue"
+                >
+                  {loading ? (
+                    <Loader2 className="spinner" />
+                  ) : (
+                    "Register Student"
+                  )}
+                </button>
+              </form>
+            </div>
+
+            {/* Remove Form */}
+            <div className="card">
+              <div className="card-header">
+                <UserMinus />
+                <h2 className="card-title">Remove Student</h2>
+              </div>
+              <form onSubmit={handleRemoveStudent} className="form">
+                <input
+                  type="text"
+                  placeholder="Student ID"
+                  value={removeForm.studentId}
+                  onChange={(e) => setRemoveForm({ studentId: e.target.value })}
+                  className="input"
+                  required
+                />
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="button button-red"
+                >
+                  {loading ? <Loader2 className="spinner" /> : "Remove Student"}
+                </button>
+              </form>
+            </div>
+
+            {/* Search Form */}
+            <div className="card">
+              <div className="card-header">
+                <Search />
+                <h2 className="card-title">Search Student</h2>
+              </div>
+              <form onSubmit={handleGetStudentById} className="form">
+                <input
+                  type="text"
+                  placeholder="Student ID"
+                  value={searchForm.studentId}
+                  onChange={(e) => setSearchForm({ studentId: e.target.value })}
+                  className="input"
+                  required
+                />
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="button button-green"
+                >
+                  {loading ? <Loader2 className="spinner" /> : "Search"}
+                </button>
+              </form>
+            </div>
+
+            {/* Student Details */}
+            {studentDetails && (
+              <div className="card">
+                <h2 className="card-title">Student Details</h2>
+                <div className="student-details">
+                  <p>
+                    <span className="label">Name:</span>
+                    <span>{studentDetails.name}</span>
+                  </p>
+                  <p>
+                    <span className="label">Status:</span>
+                    <span
+                      className={`status-badge ${
+                        studentDetails.isRegistered
+                          ? "registered"
+                          : "not-registered"
+                      }`}
+                    >
+                      {studentDetails.isRegistered
+                        ? "Registered"
+                        : "Not Registered"}
+                    </span>
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="card">
+            <p className="text-center">
+              Please connect your wallet to interact with the application.
+            </p>
           </div>
         )}
-
-        <div className="card">
-          <h2>
-            Registered Students{" "}
-            <span className="student-count">({studentCount})</span>
-          </h2>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Name</th>
-                {isAdmin && <th>Actions</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {students.map((student) => (
-                <tr key={student.id}>
-                  <td>{student.id}</td>
-                  <td>{student.name}</td>
-                  {isAdmin && (
-                    <td>
-                      <button
-                        onClick={() => removeStudent(student.id)}
-                        disabled={loading}
-                        className="btn btn-danger"
-                      >
-                        Remove
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              ))}
-              {students.length === 0 && (
-                <tr>
-                  <td colSpan={isAdmin ? 3 : 2} className="no-students">
-                    No students registered yet
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
       </div>
     </div>
   );
