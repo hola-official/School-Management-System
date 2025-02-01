@@ -12,4 +12,4 @@ This project is a decentralized application (dApp) built on Ethereum using Solid
 ## Smart Contract Details
 
 - **Deploy Address & Verification Link**: ([0xe4726d0fb94f1Bd78047752414fFAB43bE9f7697](https://sepolia-blockscout.lisk.com/address/0xe4726d0fb94f1Bd78047752414fFAB43bE9f7697#code)).
-
+- **Frontend Link**: ([School Management System](https://school-management-system-six-fawn.vercel.app/)).
